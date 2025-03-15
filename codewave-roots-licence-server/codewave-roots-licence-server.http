@@ -1,0 +1,6 @@
+@codewave_roots_licence_server_HostAddress = http://localhost:5017
+
+GET {{codewave_roots_licence_server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

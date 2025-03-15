@@ -1,0 +1,6 @@
+﻿services:
+  codewave-roots-licence-server:
+    image: codewave-roots-licence-server
+    build:
+      context: .
+      dockerfile: codewave-roots-licence-server/Dockerfile
