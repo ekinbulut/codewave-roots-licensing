@@ -3,6 +3,7 @@ using codewave_root_licence_server_core.Interfaces;
 using codewave_root_licence_server_core.Services;
 using codewave_root_licence_server_infrastructure.Data;
 using codewave_root_licence_server_infrastructure.UnitOfWork;
+using codewave_roots_licence_server.Modules;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -17,34 +18,20 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
+
+        // if jwt:key is empty, generate a random key
+        if (string.IsNullOrEmpty(builder.Configuration["Jwt:Key"]))
+        {
+            builder.Configuration["Jwt:Key"] = Guid.NewGuid().ToString();
+        }
+
         // Setup JWT Authentication
-        var key = Encoding.UTF8.GetBytes("YourSuperSecretKeyHere");
-        builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(options =>
-            {
-                options.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer = false,
-                    ValidateAudience = false,
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(key)
-                };
-            });
+        builder.Services.AddAuthenticationModule(builder.Configuration);
 
         builder.Services.AddAuthorization();
 
-
         // Setup Rate Limiting
-        builder.Services.AddRateLimiter(options =>
-        {
-            options.AddFixedWindowLimiter("fixed-window", limiterOptions =>
-            {
-                limiterOptions.Window = TimeSpan.FromMinutes(1); // 1-minute time window
-                limiterOptions.PermitLimit = 10; // Allow 10 requests per minute
-                limiterOptions.QueueLimit = 2; // Queue up to 2 requests
-            });
-        });
+        builder.Services.AddRateLimitModule();
 
         // Add DbContext
         builder.Services.AddDbContext<LicenseDbContext>(options =>
@@ -53,9 +40,8 @@ public class Program
         // Register Unit of Work & Services
         builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
         builder.Services.AddScoped<LicenseService>();
-        
-        builder.Services.AddOpenApi();
 
+        builder.Services.AddOpenApi();
 
 
         var app = builder.Build();
@@ -63,7 +49,7 @@ public class Program
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseRateLimiter();
-        
+
         if (app.Environment.IsDevelopment())
         {
             app.MapOpenApi();
@@ -72,16 +58,10 @@ public class Program
                 // Fluent API
                 options
                     .WithPreferredScheme("Bearer") // Optional. Security scheme name from the OpenAPI document
-                    .WithApiKeyAuthentication(apiKey =>
-                    {
-                        apiKey.Token = "your-api-key";
-                    });
+                    .WithApiKeyAuthentication(apiKey => { apiKey.Token = "your-api-key"; });
 
                 options
-                    .WithHttpBearerAuthentication(bearer =>
-                    {
-                        bearer.Token = "your-bearer-token";
-                    });
+                    .WithHttpBearerAuthentication(bearer => { bearer.Token = "your-bearer-token"; });
             });
         }
 
@@ -90,14 +70,24 @@ public class Program
         {
             var license = await licenseService.GenerateLicenseAsync(appName, expiryDate);
             return Results.Created($"/licenses/{license.Id}", license);
-        }).RequireAuthorization();;
+        }).RequireAuthorization();
+        ;
 
         // Validate License
         app.MapGet("/validate/{key}", async (LicenseService licenseService, string key) =>
         {
             var isValid = await licenseService.ValidateLicenseAsync(key);
             return isValid ? Results.Ok("License is valid.") : Results.BadRequest("Invalid or expired license.");
-        }).RequireAuthorization();;
+        }).RequireAuthorization();
+        ;
+
+        // Revoke License
+        app.MapDelete("/revoke/{key}", async (LicenseService licenseService, string key) =>
+        {
+            var isRevoked = await licenseService.RevokeLicenseAsync(key);
+            return isRevoked ? Results.Ok("License revoked successfully.") : Results.BadRequest("License not found.");
+        }).RequireAuthorization();
+        ;
 
         app.Run();
     }
